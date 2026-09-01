@@ -317,11 +317,11 @@ textarea{min-height:82px;resize:vertical}
     <input type="email" id="mailCc" placeholder="">
     <label for="orgName">Pošiljatelj</label>
     <input type="text" id="orgName" placeholder="npr. LovIT">
-    <label for="apiUrl">Adresa za automatsko slanje (Apps Script)</label>
-    <input type="text" id="apiUrl" placeholder="https://script.google.com/macros/s/.../exec">
-    <label for="apiKey">Tajni ključ</label>
-    <input type="text" id="apiKey" placeholder="isti ključ kao u skripti">
-    <p class="note">Ako je adresa upisana, prijava odlazi odmah iz aplikacije. Ako polje ostaviš prazno, otvara se aplikacija za e-poštu.</p>
+    <label for="apiUrl">Adresa poslužitelja</label>
+    <input type="text" id="apiUrl" placeholder="upisana u datoteci — ostavi prazno">
+    <label for="apiKey">Ključ za objavu svjetiljki</label>
+    <input type="password" id="apiKey" placeholder="isti ključ kao u skripti">
+    <p class="note">Ključ ostaje samo na ovom uređaju i nikada ne ide u objavljenu datoteku. Treba ti samo za „Objavi svjetiljke“ — za slanje prijava nije potreban.</p>
     <p class="note">Svjetiljke su spremljene samo na ovom uređaju. Redovito napravi sigurnosnu kopiju.</p>
     <div style="display:flex;gap:10px;margin-top:12px">
       <button class="btn-quiet" id="btnExport" style="flex:1;padding:12px;border-radius:9px;font-weight:600">Spremi kopiju</button>
@@ -333,6 +333,7 @@ textarea{min-height:82px;resize:vertical}
       <button class="btn-send" id="btnPublish" style="flex:1;padding:12px;border-radius:9px;font-weight:600;border:none">Objavi svjetiljke</button>
       <button class="btn-quiet" id="btnPull" style="flex:1;padding:12px;border-radius:9px;font-weight:600">Učitaj s poslužitelja</button>
     </div>
+    <button class="btn-quiet" id="btnCheck" style="width:100%;margin-top:10px;padding:12px;border-radius:9px;font-weight:600">Provjeri vezu s poslužiteljem</button>
     <div style="display:flex;gap:10px;margin-top:10px">
       <button class="btn-quiet" id="btnPass" style="flex:1;padding:12px;border-radius:9px;font-weight:600">Promijeni lozinku</button>
       <button class="btn-quiet" id="btnLogout" style="flex:1;padding:12px;border-radius:9px;font-weight:600">Odjava</button>
@@ -356,6 +357,13 @@ var KEY_ADMIN='lampenkarte.admin';
 var KEY_SESSION='lampenkarte.sesija';
 var KEY_DIRTY='lampenkarte.neobjavljeno';
 var MAIL_DEFAULT='info@komunalno.ba';
+
+/* ==========================================================================
+   OVDJE zalijepi adresu svoje Apps Script web-aplikacije (završava na /exec).
+   Ona nije tajna — svi korisnici je trebaju da bi vidjeli svjetiljke
+   i slali prijave. Tajni ključ za objavu NE ide ovdje.
+   ========================================================================== */
+var SERVER = 'https://script.google.com/macros/s/AKfycbwSbykNvEQnLBoODEW61CWtdhyUHjEw7_tB4YRYcje-OErP6I8A_BSYMTtnJEreO4M2Ug/exec';
 var OSM_ID='R2528143'; /* OpenStreetMap relacija: Brčko distrikt */
 
 /* Gruba okvirna granica — koristi se dok se prava granica ne učita */
@@ -381,6 +389,7 @@ var current = null;
 function load(k,f){ try{ var v=localStorage.getItem(k); return v?JSON.parse(v):f; }catch(e){ return f; } }
 function save(){ try{ localStorage.setItem(KEY_LAMPS,JSON.stringify(lamps)); localStorage.setItem(KEY_CFG,JSON.stringify(cfg)); }catch(e){ toast('Spremanje nije moguće — memorija je puna ili blokirana'); } }
 function $(id){ return document.getElementById(id); }
+function srv(){ return String(cfg.api||SERVER||'').trim(); }
 function fmt(n){ return Number(n).toFixed(6); }
 function esc(s){ return String(s||'').replace(/[<>&]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;'}[c];}); }
 function inRing(lat,lng,r){
@@ -642,8 +651,8 @@ function openReport(kind){
   $('reportCoords').innerHTML='<span>Svjetiljka</span> '+esc(current.name)+'<br><span>Ulica</span> '+esc(current.street||'—')+'<br><span>Koordinate</span> '+fmt(current.lat)+', '+fmt(current.lng);
   $('reportNote').value='';
   $('reporter').value=cfg.org||(isAdmin&&admin?admin.name:'');
-  $('reportSend').textContent = cfg.api?'Pošalji prijavu':'Otvori e-poštu';
-  $('reportMail').style.display = cfg.api?'block':'none';
+  $('reportSend').textContent = srv()?'Pošalji prijavu':'Otvori e-poštu';
+  $('reportMail').style.display = srv()?'block':'none';
   $('dlgReport').showModal();
 }
 
@@ -690,10 +699,10 @@ function openMailto(){
 function sendAuto(){
   var m=buildMail(), btn=$('reportSend');
   btn.disabled=true; btn.textContent='Šaljem …';
-  fetch(cfg.api,{
+  fetch(srv(),{
     method:'POST',
     headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body:JSON.stringify({kljuc:cfg.key||'', vrsta:reportKind, predmet:m.subject, tijelo:m.body})
+    body:JSON.stringify({vrsta:reportKind, predmet:m.subject, tijelo:m.body})
   })
   .then(function(r){ return r.json(); })
   .then(function(d){
@@ -706,12 +715,12 @@ function sendAuto(){
     toast('Automatsko slanje nije uspjelo — otvaram e-poštu');
     openMailto();
   })
-  .then(function(){ btn.disabled=false; btn.textContent=cfg.api?'Pošalji prijavu':'Otvori e-poštu'; });
+  .then(function(){ btn.disabled=false; btn.textContent=srv()?'Pošalji prijavu':'Otvori e-poštu'; });
 }
 
 $('reportSend').addEventListener('click',function(){
   if(!targetMail()){ $('dlgReport').close(); $('dlgSettings').showModal(); toast('Prvo upiši adresu primatelja'); return; }
-  if(cfg.api) sendAuto(); else openMailto();
+  if(srv()) sendAuto(); else openMailto();
 });
 $('reportMail').addEventListener('click',openMailto);
 
@@ -849,11 +858,12 @@ document.addEventListener('keydown',function(e){ if(e.key==='Escape'){ setPickMo
 
 /* ---------- Zajednički popis na poslužitelju ---------- */
 function apiUrl(dodatak){
-  return cfg.api + (cfg.api.indexOf('?')>-1?'&':'?') + dodatak;
+  var u=srv();
+  return u + (u.indexOf('?')>-1?'&':'?') + dodatak;
 }
 
 function pull(rucno){
-  if(!cfg.api) { if(rucno) toast('Prvo upiši adresu poslužitelja'); return; }
+  if(!srv()) { if(rucno) toast('Adresa poslužitelja nije upisana'); return; }
   if(isAdmin && dirty && !rucno){ toast('Imaš neobjavljene izmjene'); return; }
   if(isAdmin && dirty && rucno && !confirm('Imaš neobjavljene izmjene. Učitavanje će ih prebrisati. Nastaviti?')) return;
   fetch(apiUrl('akcija=svjetiljke'))
@@ -866,15 +876,15 @@ function pull(rucno){
       if(lamps.length && !rucno) map.fitBounds(lamps.map(function(l){ return [l.lat,l.lng]; }),{padding:[60,60]});
       if(rucno) toast('Učitano: '+plural(lamps.length));
     })
-    .catch(function(){ if(rucno) toast('Učitavanje nije uspjelo — radim s lokalnom kopijom'); });
+    .catch(function(){ toast(lamps.length?'Poslužitelj nije dostupan — prikazujem zadnju spremljenu listu':'Svjetiljke nije moguće učitati s poslužitelja'); });
 }
 
 function publish(){
   if(!isAdmin) return;
-  if(!cfg.api){ toast('Prvo upiši adresu poslužitelja'); return; }
+  if(!srv()){ toast('Adresa poslužitelja nije upisana'); return; }
   var btn=$('btnPublish');
   btn.disabled=true; btn.textContent='Objavljujem …';
-  fetch(cfg.api,{
+  fetch(srv(),{
     method:'POST',
     headers:{'Content-Type':'text/plain;charset=utf-8'},
     body:JSON.stringify({kljuc:cfg.key||'', vrsta:'objava', svjetiljke:lamps, potvrda:true})
@@ -890,6 +900,28 @@ function publish(){
   .then(function(){ btn.disabled=false; btn.textContent='Objavi svjetiljke'; });
 }
 
+function provjeri(){
+  var u=srv();
+  if(!u){ toast('Adresa poslužitelja nije upisana'); return; }
+  var btn=$('btnCheck');
+  btn.disabled=true; btn.textContent='Provjeravam …';
+  fetch(apiUrl('akcija=svjetiljke'))
+    .then(function(r){ return r.text(); })
+    .then(function(t){
+      var d=null;
+      try{ d=JSON.parse(t); }catch(e){}
+      if(!d) { alert('Poslužitelj je odgovorio, ali ne u očekivanom obliku.\n\nProvjeri da je pristup postavljen na "Anyone".\n\nOdgovor:\n'+t.slice(0,300)); return; }
+      if(!d.ok){ alert('Poslužitelj javlja grešku: '+(d.greska||'nepoznato')); return; }
+      if(!d.svjetiljke){ alert('Veza radi, ali skripta ne zna za popis svjetiljki.\n\nVjerojatno je u editoru stara verzija koda ili nisi napravio novu objavu:\nDeploy → Manage deployments → Edit → Version: New version → Deploy.'); return; }
+      alert('Sve radi.\nNa poslužitelju je '+d.svjetiljke.length+' svjetiljki.');
+    })
+    .catch(function(){
+      alert('Poslužitelj nije dostupan.\n\nProvjeri:\n• je li adresa točna i završava na /exec\n• je li kod objavljen kao Web app\n• je li pristup "Anyone"');
+    })
+    .then(function(){ btn.disabled=false; btn.textContent='Provjeri vezu s poslužiteljem'; });
+}
+
+$('btnCheck').addEventListener('click',provjeri);
 $('btnPublish').addEventListener('click',publish);
 $('btnPull').addEventListener('click',function(){ pull(true); });
 $('btnBoundary').addEventListener('click',function(){ loadBoundary(true); });
